@@ -30,7 +30,7 @@ class ModelSelector(object):
 
     def select(self):
         raise NotImplementedError
-
+        
     def base_model(self, num_states):
         # with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -45,8 +45,8 @@ class ModelSelector(object):
             if self.verbose:
                 print("failure on {} with {} states".format(self.this_word, num_states))
             return None
-
-
+        
+    
 class SelectorConstant(ModelSelector):
     """ select the model with value self.n_constant
 
@@ -67,7 +67,7 @@ class SelectorBIC(ModelSelector):
     http://www2.imm.dtu.dk/courses/02433/doc/ch6_slides.pdf
     Bayesian information criteria: BIC = -2 * logL + p * logN
     """
-
+    
     def select(self):
         """ select the best model for self.this_word based on
         BIC score for n between self.min_n_components and self.max_n_components
@@ -77,7 +77,23 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        current_n_components = self.min_n_components
+        all_scores = {}
+        while current_n_components <= self.max_n_components:
+            model = self.base_model(current_n_components)
+            if model is not None:
+                try:
+                    log_score = (-2) * model.score(self.X, self.lengths)
+                    num_parameters = current_n_components * (current_n_components - 1) + (current_n_components - 1) + 2 * current_n_components * len(self.X[0])
+                    penalty_score = num_parameters * math.log(len(self.X))
+                    score = log_score + penalty_score
+                    all_scores[current_n_components] = score
+                except:
+                    if self.verbose:
+                        print("failure on {} with {} states".format(self.this_word, current_n_components))
+            current_n_components += 1
+        best_num_components = min(all_scores, key=lambda k: all_scores[k])
+        return self.base_model(best_num_components)
 
 
 class SelectorDIC(ModelSelector):
@@ -101,7 +117,7 @@ class SelectorCV(ModelSelector):
     ''' select best model based on average log Likelihood of cross-validation folds
 
     '''
-
+    
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -118,19 +134,25 @@ class SelectorCV(ModelSelector):
         
         current_n_components = self.min_n_components
         all_logL = {}
-        try:
-            while current_n_components <= self.max_n_components:
-                sum_logL = 0
-                split_method = KFold(n_splits = kfold_n_split)
-                for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
-                    train_X, train_lengths = combine_sequences(cv_train_idx, self.sequences)
+        
+        while current_n_components <= self.max_n_components:
+            sum_logL = 0
+            split_method = KFold(n_splits = kfold_n_split)
+            num_scores = 0
+            for cv_train_idx, cv_test_idx in split_method.split(self.sequences):
+                train_X, train_lengths = combine_sequences(cv_train_idx, self.sequences)
+                try:
                     model = GaussianHMM(n_components=current_n_components, covariance_type="diag", n_iter=1000,
                                         random_state=self.random_state, verbose=False).fit(train_X, train_lengths)
                     test_X, test_lengths = combine_sequences(cv_test_idx, self.sequences)
                     sum_logL += model.score(test_X, test_lengths)
-                all_logL[current_n_components] = sum_logL
-                current_n_components += 1
-            best_num_components = max(all_logL, key=lambda k: all_logL[k])
-        except:
-            best_num_components = self.n_constant
+                    num_scores += 1
+                except:
+                    if self.verbose:
+                        print("failure on {} with {} states".format(self.this_word, current_n_components))
+            if num_scores > 0:
+                all_logL[current_n_components] = sum_logL / num_scores
+            current_n_components += 1
+        best_num_components = max(all_logL, key=lambda k: all_logL[k])
+        
         return self.base_model(best_num_components)
