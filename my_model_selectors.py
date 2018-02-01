@@ -92,7 +92,10 @@ class SelectorBIC(ModelSelector):
                     if self.verbose:
                         print("failure on {} with {} states".format(self.this_word, current_n_components))
             current_n_components += 1
-        best_num_components = min(all_scores, key=lambda k: all_scores[k])
+        if all_scores:
+            best_num_components = min(all_scores, key=lambda k: all_scores[k])
+        else:
+            best_num_components = self.n_constant
         return self.base_model(best_num_components)
 
 
@@ -127,7 +130,10 @@ class SelectorDIC(ModelSelector):
                     if self.verbose:
                         print("failure on {} with {} states".format(self.this_word, current_n_components))
             current_n_components += 1
-        best_num_components = max(all_scores, key=lambda k: all_scores[k])
+        if all_scores: 
+            best_num_components = max(all_scores, key=lambda k: all_scores[k])
+        else:
+            best_num_components = self.n_constant
         return self.base_model(best_num_components)
 
 
@@ -171,6 +177,9 @@ class SelectorCV(ModelSelector):
             if num_scores > 0:
                 all_logL[current_n_components] = sum_logL / num_scores
             current_n_components += 1
-        best_num_components = max(all_logL, key=lambda k: all_logL[k])
+        if all_logL:
+            best_num_components = max(all_logL, key=lambda k: all_logL[k])
+        else:
+            best_num_components = self.n_constant
         
         return self.base_model(best_num_components)
