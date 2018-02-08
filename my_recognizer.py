@@ -57,6 +57,26 @@ def log_lm(lm, previous_word, current_word, lm_ratio):
     two_gram = '{} {}'.format(new_previous_word, new_current_word)
     return lm_ratio * lm.log_p(two_gram)
 
+def find_top_word_probabilities(probabilities, word_index, possible_sentence_words, lm, lm_ratio):
+    top_word_probabilities = []
+    for possible_word, hmm_logValue in probabilities[word_index].items():
+        best_previous_word, best_total_two_gram_logValue = '', -math.inf
+        for previous_word,_,_ in possible_sentence_words[-1]:
+            lm_logValue = log_lm(lm, previous_word, possible_word, lm_ratio)
+            total_two_gram_logValue = lm_logValue + hmm_logValue
+            if best_total_two_gram_logValue < total_two_gram_logValue:
+                best_previous_word, best_total_two_gram_logValue = previous_word, total_two_gram_logValue
+        if len(top_word_probabilities) < 5:
+            top_word_probabilities.append((possible_word, best_total_two_gram_logValue, hmm_logValue))
+            top_word_probabilities.sort(key=lambda tup: tup[1])
+        else:
+            for i in range(len(top_word_probabilities)):
+                if top_word_probabilities[i][1] < best_total_two_gram_logValue:
+                    top_word_probabilities[i] = (possible_word, best_total_two_gram_logValue, hmm_logValue)
+                    top_word_probabilities.sort(key=lambda tup: tup[1])
+                    break
+    return top_word_probabilities
+
 def best_previousWord_sentenceLog(lm, possible_sentence_words, hmm_logValue, current_possible_word, lm_ratio):
     max_total_sentence_logValue, best_previous_word = -math.inf, ''
     for previous_possible_word, previous_previous_word, previous_total_logValue in possible_sentence_words[-1]:
@@ -65,48 +85,40 @@ def best_previousWord_sentenceLog(lm, possible_sentence_words, hmm_logValue, cur
             max_total_sentence_logValue, best_previous_word = total_sentence_logValue, previous_possible_word
     return max_total_sentence_logValue, best_previous_word
 
+def search_highlikely_sentence_words(lm, probabilities, test_set, lm_ratio, video_num):
+    possible_sentence_words = [[('<s>', '', 0.0)]]
+    for word_index in test_set.sentences_index[video_num]:
+        top_word_probabilities = find_top_word_probabilities(probabilities, word_index, possible_sentence_words, lm, lm_ratio)
+        current_possibles = []
+        for current_possible_word,_,hmm_logValue in top_word_probabilities:
+            max_total_sentence_logValue, best_previous_word = best_previousWord_sentenceLog(lm, possible_sentence_words, hmm_logValue, current_possible_word, lm_ratio)
+            current_possibles.append((current_possible_word, best_previous_word, max_total_sentence_logValue))
+        possible_sentence_words.append(current_possibles)
+
+    max_total_sentence_logValue, best_last_word = best_previousWord_sentenceLog(lm, possible_sentence_words, 0.0, '</s>', lm_ratio)    
+    possible_sentence_words.append([('</s>', best_last_word, max_total_sentence_logValue)])
+    return possible_sentence_words
+
+def find_mostlikely_reversed_sentence(possible_sentence_words):
+    reversed_recognized_sentence = []
+    for i in range(len(possible_sentence_words) - 2):
+        index = len(possible_sentence_words) - 1 - i
+        if i == 0:
+            reversed_recognized_sentence.append(possible_sentence_words[index][0][1])
+        else:
+            last_recognized_word = reversed_recognized_sentence[-1]
+            for word,previous_word,_ in possible_sentence_words[index]:
+                if word == last_recognized_word:
+                    reversed_recognized_sentence.append(previous_word)
+    return reversed_recognized_sentence
+
 def recognize_two_gram(lm, probabilities: list, test_set: SinglesData, lm_ratio: float):
     S = 0
     N = len(test_set.wordlist)
     for video_num in test_set.sentences_index:
-        possible_sentence_words = [[('<s>', '', 0.0)]]
-        for word_index in test_set.sentences_index[video_num]:
-            top_word_probabilities = []
-            for possible_word, hmm_logValue in probabilities[word_index].items():
-                best_previous_word, best_total_two_gram_logValue = '', -math.inf
-                for previous_word,_,_ in possible_sentence_words[-1]:
-                    lm_logValue = log_lm(lm, previous_word, possible_word, lm_ratio)
-                    total_two_gram_logValue = lm_logValue + hmm_logValue
-                    if best_total_two_gram_logValue < total_two_gram_logValue:
-                        best_previous_word, best_total_two_gram_logValue = previous_word, total_two_gram_logValue
-                if len(top_word_probabilities) < 5:
-                    top_word_probabilities.append((possible_word, best_total_two_gram_logValue, hmm_logValue))
-                    top_word_probabilities.sort(key=lambda tup: tup[1])
-                else:
-                    for i in range(len(top_word_probabilities)):
-                        if top_word_probabilities[i][1] < best_total_two_gram_logValue:
-                            top_word_probabilities[i] = (possible_word, best_total_two_gram_logValue, hmm_logValue)
-                            top_word_probabilities.sort(key=lambda tup: tup[1])
-                            break
-            current_possibles = []
-            for current_possible_word,_,hmm_logValue in top_word_probabilities:
-                max_total_sentence_logValue, best_previous_word = best_previousWord_sentenceLog(lm, possible_sentence_words, hmm_logValue, current_possible_word, lm_ratio)
-                current_possibles.append((current_possible_word, best_previous_word, max_total_sentence_logValue))
-            possible_sentence_words.append(current_possibles)
+        possible_sentence_words = search_highlikely_sentence_words(lm, probabilities, test_set, lm_ratio, video_num)
         
-        max_total_sentence_logValue, best_last_word = best_previousWord_sentenceLog(lm, possible_sentence_words, 0.0, '</s>', lm_ratio)    
-        possible_sentence_words.append([('</s>', best_last_word, max_total_sentence_logValue)])
-        
-        reversed_recognized_sentence = []
-        for i in range(len(possible_sentence_words) - 2):
-            index = len(possible_sentence_words) - 1 - i
-            if i == 0:
-                reversed_recognized_sentence.append(possible_sentence_words[index][0][1])
-            else:
-                last_recognized_word = reversed_recognized_sentence[-1]
-                for word,previous_word,_ in possible_sentence_words[index]:
-                    if word == last_recognized_word:
-                        reversed_recognized_sentence.append(previous_word)
+        reversed_recognized_sentence = find_mostlikely_reversed_sentence(possible_sentence_words)
         
         correct_sentence = [test_set.wordlist[i] for i in test_set.sentences_index[video_num]]
         recognized_sentence = []
@@ -118,6 +130,7 @@ def recognize_two_gram(lm, probabilities: list, test_set: SinglesData, lm_ratio:
             else:
                 recognized_sentence.append(reversed_recognized_sentence[index])
         print('{:5}: {:60}  {}'.format(video_num, ' '.join(recognized_sentence), ' '.join(correct_sentence)))
+        
     print("\n**** WER = {}".format(float(S) / float(N)))
     print("Total correct: {} out of {}".format(N - S, N))
             
