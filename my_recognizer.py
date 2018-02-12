@@ -24,17 +24,18 @@ def recognize(models: dict, test_set: SinglesData):
     # TODO implement the recognizer
     # return probabilities, guesses
     test_all_XLengths = test_set.get_all_Xlengths()
-    for test_word_id, test_word_XLengths in test_all_XLengths.items():
+    for test_word_X, test_word_lengths in test_all_XLengths.values():
         prob_dict = {}
-        test_word_X, test_word_lengths = test_word_XLengths
+        best_guess_word, highest_score = None, -math.inf
         for model_word, model in models.items():
             try:
                 score = model.score(test_word_X, test_word_lengths)
+                if score > highest_score:
+                    best_guess_word, highest_score = model_word, score
             except:
-                pass
+                score = -math.inf
             prob_dict[model_word] = score
         probabilities.append(prob_dict)
-        best_guess_word = max(prob_dict, key=lambda k: prob_dict[k])
         guesses.append(best_guess_word)
         
     return probabilities, guesses
